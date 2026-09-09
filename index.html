@@ -386,6 +386,9 @@ const stockoutBand = {
 };
 
 function render(){
+  // DOM 요소 없으면 중단 (DOMContentLoaded 전 호출 방지)
+  if(!document.getElementById("channelSegs")) return;
+
   const all = getAll();
   const chs = channels(), mos = months();
   if(!chs.includes(selChannel) && selChannel!=="전체") selChannel="전체";
@@ -512,30 +515,24 @@ function buildDailyForKpi(recs){
   return [...byDate.values()];
 }
 
-window.addEventListener("DOMContentLoaded", async ()=>{
-  // 1. 기본 렌더링 (seed 데이터)
-  render();
+// 초기 실행 (script가 </body> 앞에 위치하므로 DOM 이미 준비됨)
+render();
 
-  // 2. 세션 중 이미 인증한 경우 관리자 UI 표시
-  if(sessionStorage.getItem(SESSION_KEY)==="1"){
-    showAdminContent();
-  }
+// 세션 중 이미 인증한 경우 관리자 UI 표시
+if(sessionStorage.getItem(SESSION_KEY)==="1") showAdminContent();
 
-  // 3. 저장된 구글 시트 ID가 있으면 자동 fetch
+// 저장된 구글 시트 ID가 있으면 자동 fetch
+(async ()=>{
   const saved = loadGSheetId();
-  if(saved){
-    try{
-      if(document.getElementById("gsheetInput"))
-        document.getElementById("gsheetInput").value = saved;
-      const recs = await fetchGSheet(saved);
-      if(recs.length){
-        store.clear();
-        putRecords(recs);
-        render();
-      }
-    } catch(e){
-      console.warn("자동 연동 실패, 내장 데이터 사용:", e.message);
-    }
+  if(!saved) return;
+  try{
+    if(document.getElementById("gsheetInput"))
+      document.getElementById("gsheetInput").value = saved;
+    const recs = await fetchGSheet(saved);
+    if(recs.length){ store.clear(); putRecords(recs); render(); }
+  } catch(e){
+    console.warn("자동 연동 실패, 내장 데이터 사용:", e.message);
   }
-});
-</script></body></html>
+})();
+</script>
+</body></html>
