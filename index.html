@@ -53,14 +53,12 @@
   @media (max-width:560px){ .chartbox{height:240px} h1{font-size:22px} }
 
   .lock-panel{padding:12px 14px;background:#F8FBF6;border:1px solid var(--line);border-radius:12px}
-  .lock-row{display:flex;gap:6px;align-items:center}
+  .lock-row{display:flex;gap:6px}
   .lock-row input[type=password]{flex:1;border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12px;font-family:inherit;outline:none;background:#fff}
   .lock-row input[type=password]:focus{border-color:var(--ink)}
   .lock-row button{padding:7px 14px;border-radius:8px;border:none;background:var(--ink);color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
-  .lock-row button:hover{background:#000}
   #lockStatus{font-size:11px;color:var(--bad);margin-top:4px;min-height:13px}
   #adminContent{display:none}
-  #adminContent.unlocked{display:block}
   .gsheet-panel{margin-top:10px;padding:12px 14px;background:#F8FBF6;border:1px solid var(--line);border-radius:12px}
   .gsheet-label{font-size:12.5px;font-weight:700;color:var(--ink);margin-bottom:6px}
   .gsheet-hint{font-weight:400;color:var(--faint);font-size:11px}
@@ -68,12 +66,9 @@
   .gsheet-row input{flex:1;border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12px;font-family:inherit;outline:none;background:#fff}
   .gsheet-row input:focus{border-color:var(--ink)}
   .gsheet-row button{padding:7px 14px;border-radius:8px;border:none;background:var(--ink);color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap}
-  .gsheet-row button:hover{background:#000}
-  .gsheet-row button:disabled{background:var(--faint);cursor:not-allowed}
   #gsheetStatus{font-size:11.5px;margin-top:5px;min-height:14px;font-weight:600}
   #gsheetStatus.ok{color:var(--p6)}
   #gsheetStatus.err{color:var(--bad)}
-
 </style>
 </head>
 <body>
@@ -85,29 +80,7 @@
       <h1>논알콜 판매 대시보드</h1>
       <div class="range" id="dateRange">데이터 로딩 중…</div>
     </div>
-    <div class="admin-area">
-      <div class="lock-panel">
-        <div id="lockForm">
-          <div class="gsheet-label">🔒 관리자 전용</div>
-          <div class="lock-row">
-            <input type="password" id="lockPw" placeholder="비밀번호 입력" onkeydown="if(event.key==='Enter')unlockAdmin()">
-            <button onclick="unlockAdmin()">확인</button>
-          </div>
-          <div id="lockStatus"></div>
-        </div>
-        <div id="adminContent">
-          <div class="gsheet-panel" style="margin-top:0;border:none;padding:0;background:transparent">
-            <div class="gsheet-label">🔗 구글 시트 연동 <span class="gsheet-hint">(시트 ID 또는 URL)</span></div>
-            <div class="gsheet-row">
-              <input id="gsheetInput" type="text" placeholder="시트 ID 또는 공유 URL 붙여넣기" spellcheck="false">
-              <button id="gsheetBtn" onclick="connectGSheet()">연결</button>
-            </div>
-            <div id="gsheetStatus"></div>
-          </div>
-          <button style="margin-top:8px;font-size:11px;background:none;border:none;color:var(--faint);cursor:pointer;padding:0;font-family:inherit" onclick="lockAdmin()">🔒 잠금</button>
-        </div>
-      </div>
-    </div>
+    <div class="admin-area" id="adminArea"></div>
   </div>
 
   <div class="kpis" id="kpis"></div>
@@ -140,11 +113,40 @@
 
 <script>
 
-/* ───────── 구글 시트 연동 ───────── */
-
 /* ───────── 관리자 잠금 ───────── */
 const ADMIN_HASH = "6ac69fd9aff1c6697e9bfd95ed53dfe0de58a7eea3e1055b2131884ae98b6cf1";
-const SESSION_KEY = "nonalcohol_admin_unlocked";
+const SESSION_KEY = "nonalcohol_admin";
+const STORAGE_KEY = "nonalcohol_gsheet_id";
+
+function buildAdminUI(){
+  const area = document.getElementById("adminArea");
+  if(!area) return;
+  area.innerHTML = `
+    <div class="lock-panel">
+      <div id="lockForm">
+        <div class="gsheet-label">🔒 관리자 전용</div>
+        <div class="lock-row">
+          <input type="password" id="lockPw" placeholder="비밀번호 입력" onkeydown="if(event.key==='Enter')unlockAdmin()">
+          <button onclick="unlockAdmin()">확인</button>
+        </div>
+        <div id="lockStatus"></div>
+      </div>
+      <div id="adminContent">
+        <div class="gsheet-label">🔗 구글 시트 연동 <span class="gsheet-hint">(시트 ID 또는 URL)</span></div>
+        <div class="gsheet-row">
+          <input id="gsheetInput" type="text" placeholder="시트 ID 또는 공유 URL 붙여넣기" spellcheck="false">
+          <button id="gsheetBtn" onclick="connectGSheet()">연결</button>
+        </div>
+        <div id="gsheetStatus"></div>
+        <button style="margin-top:6px;font-size:11px;background:none;border:none;color:var(--faint);cursor:pointer;padding:0;font-family:inherit" onclick="lockAdmin()">🔒 잠금</button>
+      </div>
+    </div>`;
+
+  if(sessionStorage.getItem(SESSION_KEY)==="1") showAdminContent();
+
+  const saved = localStorage.getItem(STORAGE_KEY)||"";
+  if(saved) document.getElementById("gsheetInput").value = saved;
+}
 
 async function sha256(str){
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
@@ -155,18 +157,17 @@ async function unlockAdmin(){
   const pw = document.getElementById("lockPw").value;
   const hash = await sha256(pw);
   if(hash === ADMIN_HASH){
-    sessionStorage.setItem(SESSION_KEY, "1");
+    sessionStorage.setItem(SESSION_KEY,"1");
     showAdminContent();
   } else {
-    const st = document.getElementById("lockStatus");
-    st.textContent = "비밀번호가 맞지 않습니다";
+    document.getElementById("lockStatus").textContent = "비밀번호가 맞지 않습니다";
     document.getElementById("lockPw").value = "";
   }
 }
 
 function lockAdmin(){
   sessionStorage.removeItem(SESSION_KEY);
-  document.getElementById("adminContent").classList.remove("unlocked");
+  document.getElementById("adminContent").style.display = "none";
   document.getElementById("lockForm").style.display = "";
   document.getElementById("lockPw").value = "";
   document.getElementById("lockStatus").textContent = "";
@@ -174,221 +175,83 @@ function lockAdmin(){
 
 function showAdminContent(){
   document.getElementById("lockForm").style.display = "none";
-  document.getElementById("adminContent").classList.add("unlocked");
-}
-
-// 세션 중 이미 인증한 경우 자동 해제
-
-const STORAGE_KEY = "nonalcohol_gsheet_id";
-
-function loadGSheetId(){
-  return localStorage.getItem(STORAGE_KEY) || "";
-}
-function saveGSheetId(id){
-  localStorage.setItem(STORAGE_KEY, id);
+  document.getElementById("adminContent").style.display = "block";
 }
 
 function extractSheetId(input){
-  // URL 또는 순수 ID 입력 둘 다 처리
   const m = input.match(/\/d\/([a-zA-Z0-9_-]{20,})/);
-  return m ? m[1] : (input.length > 20 ? input.trim() : "");
-}
-
-async function fetchGSheet(sheetId){
-  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
-  const res = await fetch(url);
-  if(!res.ok) throw new Error(`구글 시트 응답 오류: ${res.status}`);
-  const csv = await res.text();
-  return parseCSV(csv);
-}
-
-function parseCSV(csv){
-  const lines = csv.split(/\r?\n/).filter(l=>l.trim());
-  if(lines.length < 2) throw new Error("데이터가 없습니다");
-  
-  // 헤더 파싱
-  const header = splitCSVLine(lines[0]).map(h=>h.trim().replace(/^"|"$/g,""));
-  
-  // 필수 컬럼 확인
-  const dateIdx = header.findIndex(h=>h==="날짜"||h==="date");
-  const chIdx   = header.findIndex(h=>h==="channel"||h==="채널");
-  const prIdx   = header.findIndex(h=>h==="product"||h==="상품");
-  const qtyIdx  = header.findIndex(h=>h==="qty"||h==="수량");
-  const noteIdx = header.findIndex(h=>h==="note"||h==="비고");
-  
-  if(dateIdx<0||chIdx<0||prIdx<0||qtyIdx<0){
-    throw new Error(`필수 컬럼 없음\n필요: 날짜, channel, product, qty\n현재 헤더: ${header.join(", ")}`);
-  }
-  
-  const recs = [];
-  for(let i=1;i<lines.length;i++){
-    const cols = splitCSVLine(lines[i]).map(c=>c.trim().replace(/^"|"$/g,""));
-    const date = cols[dateIdx]?.trim();
-    if(!date||!/^\d{4}-\d{2}-\d{2}/.test(date)) continue;
-    recs.push({
-      date: date.slice(0,10),
-      channel: cols[chIdx]?.trim()||"",
-      product: cols[prIdx]?.trim()||"",
-      qty: Number(cols[qtyIdx])||0,
-      note: noteIdx>=0 ? (cols[noteIdx]?.trim()||"") : ""
-    });
-  }
-  return recs;
-}
-
-function splitCSVLine(line){
-  // 쉼표 구분, 따옴표 내 쉼표 처리
-  const result=[], re=/("(?:[^"]|"")*"|[^,]*)/g;
-  let m;
-  while((m=re.exec(line))!==null){
-    if(m.index===re.lastIndex) re.lastIndex++;
-    result.push(m[1].replace(/""/g,"\""));
-  }
-  return result;
+  return m ? m[1] : (input.trim().length > 20 ? input.trim() : "");
 }
 
 async function connectGSheet(){
   const input = document.getElementById("gsheetInput").value.trim();
   const sheetId = extractSheetId(input);
   if(!sheetId){ alert("올바른 구글 시트 ID 또는 URL을 입력해주세요."); return; }
-  
   const btn = document.getElementById("gsheetBtn");
   const status = document.getElementById("gsheetStatus");
-  btn.disabled = true;
-  btn.textContent = "연결 중…";
-  status.textContent = "";
-  status.className = "";
-  
+  btn.disabled = true; btn.textContent = "연결 중…"; status.textContent = "";
   try{
     const recs = await fetchGSheet(sheetId);
     if(!recs.length) throw new Error("데이터가 없습니다");
-    store.clear();
-    putRecords(recs);
-    saveGSheetId(sheetId);
-    status.textContent = `✅ ${recs.length}건 로드 완료`;
-    status.className = "ok";
+    store.clear(); putRecords(recs);
+    localStorage.setItem(STORAGE_KEY, sheetId);
     document.getElementById("gsheetInput").value = sheetId;
+    status.textContent = "✅ " + recs.length + "건 로드 완료";
+    status.className = "ok";
     render();
   } catch(e){
     status.textContent = "❌ " + e.message;
     status.className = "err";
   } finally{
-    btn.disabled = false;
-    btn.textContent = "연결";
+    btn.disabled = false; btn.textContent = "연결";
   }
 }
 
-// 페이지 로드 시 저장된 시트 ID 복원
-
-
-/* ───────── 내장 데이터 로드 ───────── */
-const SEEDDATA = JSON.parse(document.getElementById("seed").textContent);
-
-const store = new Map();           // key: date|channel|product
-const loadedFiles = [...SEEDDATA.files.map(f=>`${f} (내장)`)];
-let hasNewData = false;
-let selChannel = "전체", selMonth = "전체";
-let charts = {};
-
-function putRecords(recs){ recs.forEach(r=>store.set(`${r.date}|${r.channel}|${r.product}`, r)); }
-putRecords(SEEDDATA.records);
-
-/* ───────── 유틸 ───────── */
-const DOW = ["일","월","화","수","목","금","토"];
-const dowOf = d => DOW[new Date(d+"T00:00:00").getDay()];
-const fmtMD = d => { const t=new Date(d+"T00:00:00"); return `${t.getMonth()+1}/${t.getDate()}`; };
-const num = n => n.toLocaleString("ko-KR");
-const PALETTE = ["#5C8A4E","#D9A13B","#4E7A8A","#8A5C7E","#A0764B","#6B8F71"];
-const CHCOLOR = { "네이버":"#03C75A", "쿠팡":"#E4572E",
-  "논알콜 6입(캔)":"#5C8A4E", "논알콜 12입(캔)":"#D9A13B" };
-function productColor(p, i){ if(p.includes("6입")) return "#5C8A4E"; if(p.includes("12입")) return "#D9A13B"; return PALETTE[i%PALETTE.length]; }
-function mondayOf(dateStr){
-  const t=new Date(dateStr+"T00:00:00"); const wd=(t.getDay()+6)%7;
-  t.setDate(t.getDate()-wd);
-  return `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`;
+async function fetchGSheet(sheetId){
+  const url = "https://docs.google.com/spreadsheets/d/" + sheetId + "/export?format=csv";
+  const res = await fetch(url);
+  if(!res.ok) throw new Error("구글 시트 응답 오류: " + res.status);
+  return parseCSV(await res.text());
 }
 
-/* ───────── 엑셀 파싱 ───────── */
-
-
-/* ───────── 업로드 + 내장본 저장 ───────── */
-const drop = document.getElementById("drop"), fileInput = document.getElementById("fileInput"),
-      fileStatus = document.getElementById("fileStatus"), saveBtn = document.getElementById("saveBtn");
-drop.addEventListener("click", ()=>fileInput.click());
-["dragover","dragenter"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over");}));
-["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over");}));
-drop.addEventListener("drop", e=>handleFiles(e.dataTransfer.files));
-fileInput.addEventListener("change", e=>{handleFiles(e.target.files); fileInput.value="";});
-
-
-saveBtn.addEventListener("click", ()=>{
-  const today = new Date();
-  const ds = `${today.getFullYear()}${String(today.getMonth()+1).padStart(2,"0")}${String(today.getDate()).padStart(2,"0")}`;
-  const payload = {
-    records: [...store.values()].sort((a,b)=>a.date.localeCompare(b.date)),
-    files: loadedFiles.map(f=>f.replace(" (내장)","")),
-    exportedAt: today.toISOString().slice(0,10),
-  };
-  const json = JSON.stringify(payload).replace(/</g,"\\u003c");
-  const html = TEMPLATE.replace(
-    /(<script type="application\/json" id="seed">)[\s\S]*?(<\/script>)/,
-    (_, a, b) => a + json + b
-  );
-  const blob = new Blob([html], {type:"text/html;charset=utf-8"});
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `논알콜_판매_대시보드_${ds}.html`;
-  a.click();
-  URL.revokeObjectURL(a.href);
-  fileStatus.className=""; fileStatus.textContent = `✓ 내장본 저장 완료 — 다음부터 그 파일을 열면 업로드 없이 최신 데이터가 보입니다`;
-});
-
-/* ───────── 집계 & 렌더 ───────── */
-function getAll(){ return [...store.values()].sort((a,b)=>a.date.localeCompare(b.date)); }
-function channels(){ return [...new Set(getAll().map(r=>r.channel))]; }
-function months(){ return [...new Set(getAll().map(r=>Number(r.date.slice(5,7))))].sort((a,b)=>a-b); }
-
-function buildDaily(recs){
-  const byDate = new Map();
-  recs.forEach(r=>{
-    if(!byDate.has(r.date)) byDate.set(r.date,{date:r.date, dow:dowOf(r.date), total:0, parts:new Map(), stockout:false, notes:new Set()});
-    const d = byDate.get(r.date);
-    d.total += r.qty;
-    const key = (selChannel==="전체") ? r.channel : r.product;
-    d.parts.set(key,(d.parts.get(key)||0)+r.qty);
-    if(r.note && r.note.includes("재고")) d.stockout = true;
-    if(r.note) d.notes.add(r.note);
-  });
-  const days = [...byDate.values()].sort((a,b)=>a.date.localeCompare(b.date));
-  days.forEach((d,i)=>{ const w=days.slice(Math.max(0,i-6),i+1); d.ma7=+(w.reduce((s,x)=>s+x.total,0)/w.length).toFixed(1); });
-  return days;
-}
-
-function destroyCharts(){ Object.values(charts).forEach(c=>c&&c.destroy()); charts={}; }
-
-const stockoutBand = {
-  id:"stockoutBand",
-  beforeDatasetsDraw(chart, _, opts){
-    const ranges = opts.ranges||[]; if(!ranges.length) return;
-    const {ctx, chartArea:{top,bottom}, scales:{x}} = chart;
-    ctx.save();
-    ranges.forEach(([i1,i2])=>{
-      const half=(x.getPixelForValue(1)-x.getPixelForValue(0))/2 || 6;
-      const x1=x.getPixelForValue(i1)-half, x2=x.getPixelForValue(i2)+half;
-      ctx.fillStyle="rgba(196,87,78,.08)"; ctx.fillRect(x1,top,x2-x1,bottom-top);
-      ctx.strokeStyle="rgba(196,87,78,.4)"; ctx.setLineDash([4,4]);
-      ctx.strokeRect(x1,top,x2-x1,bottom-top);
-      ctx.setLineDash([]); ctx.fillStyle="#C4574E"; ctx.font="600 11px 'IBM Plex Sans KR'";
-      ctx.textAlign="center"; ctx.fillText("결품 (재고이슈)",(x1+x2)/2,top+14);
-    });
-    ctx.restore();
+function parseCSV(csv){
+  const lines = csv.split(/\r?\n/).filter(l=>l.trim());
+  if(lines.length < 2) throw new Error("데이터가 없습니다");
+  const header = lines[0].split(",").map(h=>h.trim().replace(/^"|"$/g,""));
+  const dateIdx = header.findIndex(h=>h==="날짜"||h==="date");
+  const chIdx   = header.findIndex(h=>h==="channel"||h==="채널");
+  const prIdx   = header.findIndex(h=>h==="product"||h==="상품");
+  const qtyIdx  = header.findIndex(h=>h==="qty"||h==="수량");
+  const noteIdx = header.findIndex(h=>h==="note"||h==="비고");
+  if(dateIdx<0||chIdx<0||prIdx<0||qtyIdx<0) throw new Error("필수 컬럼 없음 (날짜/channel/product/qty)");
+  const recs = [];
+  for(let i=1;i<lines.length;i++){
+    const cols = lines[i].split(",").map(c=>c.trim().replace(/^"|"$/g,""));
+    const date = (cols[dateIdx]||"").trim();
+    if(!/^\d{4}-\d{2}-\d{2}/.test(date)) continue;
+    recs.push({date:date.slice(0,10), channel:cols[chIdx]||"", product:cols[prIdx]||"",
+              qty:Number(cols[qtyIdx])||0, note:noteIdx>=0?(cols[noteIdx]||""):""});
   }
-};
+  return recs;
+}
 
+/* ───────── 초기 실행 ───────── */
+buildAdminUI();
+render();
+
+// 저장된 구글 시트 자동 fetch
+(async ()=>{
+  const saved = localStorage.getItem(STORAGE_KEY)||"";
+  if(!saved) return;
+  try{
+    const recs = await fetchGSheet(saved);
+    if(recs.length){ store.clear(); putRecords(recs); render(); }
+  } catch(e){ console.warn("자동 연동 실패:", e.message); }
+})();
+
+</script>
+</body></html
 function render(){
-  // DOM 요소 없으면 중단 (DOMContentLoaded 전 호출 방지)
-  if(!document.getElementById("channelSegs")) return;
-
   const all = getAll();
   const chs = channels(), mos = months();
   if(!chs.includes(selChannel) && selChannel!=="전체") selChannel="전체";
@@ -503,36 +366,4 @@ function render(){
     `반영된 데이터: ${loadedFiles.join(" → ")} (내장 기준일 ${SEEDDATA.exportedAt})<br>` +
     `같은 날짜·채널·상품 데이터는 최신 업로드 파일로 덮어쓰기됩니다.<br>` +
     `※ 새 엑셀을 올린 뒤 <b>"내장본 저장"</b> 버튼을 누르면 그 데이터가 박힌 새 HTML이 다운로드됩니다 — 다음부터는 그 파일을 열어 쓰세요.`;
-}
-
-function buildDailyForKpi(recs){
-  const byDate=new Map();
-  recs.forEach(r=>{
-    if(!byDate.has(r.date)) byDate.set(r.date,{total:0,stockout:false});
-    const d=byDate.get(r.date); d.total+=r.qty;
-    if(r.note&&r.note.includes("재고")) d.stockout=true;
-  });
-  return [...byDate.values()];
-}
-
-// 초기 실행 (script가 </body> 앞에 위치하므로 DOM 이미 준비됨)
-render();
-
-// 세션 중 이미 인증한 경우 관리자 UI 표시
-if(sessionStorage.getItem(SESSION_KEY)==="1") showAdminContent();
-
-// 저장된 구글 시트 ID가 있으면 자동 fetch
-(async ()=>{
-  const saved = loadGSheetId();
-  if(!saved) return;
-  try{
-    if(document.getElementById("gsheetInput"))
-      document.getElementById("gsheetInput").value = saved;
-    const recs = await fetchGSheet(saved);
-    if(recs.length){ store.clear(); putRecords(recs); render(); }
-  } catch(e){
-    console.warn("자동 연동 실패, 내장 데이터 사용:", e.message);
-  }
-})();
-</script>
-</body></html>
+}>
