@@ -3,7 +3,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>논알콜 판매 대시보드</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Hahmlet:wght@600;700&family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
@@ -336,50 +335,7 @@ function mondayOf(dateStr){
 }
 
 /* ───────── 엑셀 파싱 ───────── */
-function parseWorkbook(wb, fname){
-  let added = 0; const recs = [];
-  wb.SheetNames.forEach(sn=>{
-    if(!/^\d{1,2}월$/.test(sn.trim())) return;
-    const grid = XLSX.utils.sheet_to_json(wb.Sheets[sn], {header:1, raw:true});
-    const hIdx = grid.findIndex(r => r && r.some(c => String(c).trim()==="날짜"));
-    if(hIdx === -1) return;
-    const header = grid[hIdx].map(c=>String(c??"").replace(/[\r\n]+/g," ").replace(/\s+/g," ").trim());
-    const skip = new Set(["날짜","요일","주차","비고",""]);
-    const prodCols = [];
-    header.forEach((h,ci)=>{
-      if(skip.has(h)||h.startsWith("합계")||h.includes("박스")) return;
-      let channel="기타", product=h;
-      const m = h.match(/^(네이버|쿠팡|스토어|스마트스토어)\s*(.*)$/);
-      if(m){ channel = m[1]==="스마트스토어"||m[1]==="스토어" ? "네이버" : m[1]; product = m[2].trim()||h; }
-      prodCols.push({ci, channel, product});
-    });
-    if(!prodCols.length) return;
-    const dateCi = header.indexOf("날짜"), noteCi = header.indexOf("비고");
-    for(let ri=hIdx+1; ri<grid.length; ri++){
-      const row = grid[ri]; if(!row) continue;
-      const dv = row[dateCi];
-      let dateStr = null;
-      if(typeof dv === "number" && dv > 20000){
-        const t = new Date(Date.UTC(1899,11,30) + dv*86400000);
-        dateStr = `${t.getUTCFullYear()}-${String(t.getUTCMonth()+1).padStart(2,"0")}-${String(t.getUTCDate()).padStart(2,"0")}`;
-      } else if(typeof dv === "string" && /^\d{4}-\d{2}-\d{2}/.test(dv)) dateStr = dv.slice(0,10);
-      if(!dateStr) continue;
-      const note = noteCi >= 0 ? String(row[noteCi]??"").trim() : "";
-      const allEmpty = prodCols.every(pc => row[pc.ci]===undefined || row[pc.ci]==="" || row[pc.ci]===null);
-      if(allEmpty && !note) continue;
-      prodCols.forEach(pc=>{
-        const v = row[pc.ci];
-        const qty = (typeof v==="number") ? v : (v==null||v==="" ? 0 : Number(v)||0);
-        recs.push({date:dateStr, channel:pc.channel, product:pc.product, qty, note});
-        added++;
-      });
-    }
-  });
-  if(!added) throw new Error("인식 가능한 시트가 없습니다 (시트명 '4월' 형식 + '날짜' 헤더 필요)");
-  putRecords(recs);
-  loadedFiles.push(fname);
-  return added;
-}
+
 
 /* ───────── 업로드 + 내장본 저장 ───────── */
 const drop = document.getElementById("drop"), fileInput = document.getElementById("fileInput"),
